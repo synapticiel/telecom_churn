@@ -20,9 +20,9 @@ In this example, we will predict whether a telecom customer is likely to churn b
 
 # Setting up your environment
 
-To follow along, start a free trial of Elastic Cloud, spin up a new deployment or simply download Elasticsearch, Kibana and Logstash, download the calls.csv and customers.csv files, and upload them via the CSV upload feature (or use Logstash). Data is derived from a dataset referenced in various sources: openml, kaggle, Larose 2014. This dataset was disaggregated into line items, and random features were added. Phone numbers and other data are fabricated and any resemblance to real data is coincidental. 
+To follow along, start a free trial of [Elastic Cloud](https://www.elastic.co/elasticsearch/service), spin up a [new deployment](https://www.elastic.co/guide/en/cloud/current/ec-create-deployment.html) or simply download Elasticsearch, Kibana and Logstash from [Elastic](https://www.elastic.co) web site, download the [calls.csv](./call.7z) and [customers.csv](./customers.7z) files, and upload them via the [CSV upload feature](https://www.elastic.co/blog/importing-csv-and-log-data-into-elasticsearch-with-file-data-visualizer) (or use Logstash). Data is derived from a dataset referenced in various sources : [openml](https://www.openml.org/d/40701), [kaggle](https://www.kaggle.com/becksddf/churn-in-telecoms-dataset), [Larose 2014](http://dataminingconsultant.com/DKD2e_data_sets.zip). This dataset was disaggregated into line items, and random features were added. Phone numbers and other data are fabricated and any resemblance to real data is coincidental. 
 
-Once uploaded you should have data that looks like this:
+Once uploaded you should have data that looks like this :
 
 In the customers index :
 
@@ -53,6 +53,125 @@ In the calls index :
 }
 ```
 
+# Building the feature set
+
+First, we want to build out our feature set. We have two sources of data: customer metadata and call logs. This requires the use of transforms and the enrich processor. This combination allows us to merge the metadata along with the call information in the other index.
+
+The enrichment policy and pipeline. (Execute the commands in the Kibana dev console)
+
+````json
+# Enrichment policy for customer metadata
+
+PUT /_enrich/policy/customer_metadata
+{
+  "match": {
+    "indices": "customers",
+    "match_field": "phone_number",
+    "enrich_fields": [
+      "account_age",
+      "churn",
+      "customer_service_calls",
+      "international_plan",
+      "number_vmail_messages",
+      "state",
+      "voice_mail_plan"
+    ]
+  }
+}
+
+# Execute the policy so we can populate with the metadata
+
+POST /_enrich/policy/customer_metadata/_execute
+
+# Our enrichment pipeline for generating features
+
+PUT _ingest/pipeline/customer_metadata
+{
+  "description": "Adds metadata about customers by lookup on phone_number",
+  "processors": [
+    {
+      "enrich": {
+        "policy_name": "customer_metadata",
+        "field": "phone_number",
+        "target_field": "customer",
+        "max_matches": 1
+      }
+    }
+  ]
+}
+```
+
+We can now build a transform that utilizes our new pipeline. Here is the transform definition:
+
+```json
+# transform for enriching the data for training
+
+PUT _transform/customer_churn_transform
+{
+  "source": {
+    "index": [
+      "calls"
+    ]
+  },
+  "dest": {
+    "index": "churn_transform_index",
+    "pipeline": "customer_metadata"
+  },
+  "pivot": {
+    "group_by": {
+      "phone_number": {
+        "terms": {
+          "field": "phone_number"
+        }
+      }
+    },
+    "aggregations": {
+      "call_charges": {
+        "sum": {
+          "field": "call_charges"
+        }
+      },
+      "call_duration": {
+        "sum": {
+          "field": "call_duration"
+        }
+      },
+      "call_count": {
+        "value_count": {
+          "field": "dialled_number"
+        }
+      }
+    }
+  }
+}
+```
+Now that the transform is created, we can start it and see its progress on the Transforms page under Stack Management.
+
+<img src="./screens/tranform.png" align="middle">
+
+
+Once tranfor executed  you should have data that looks like this :
+
+In the customers churn_transform_index :
+
+```json
+{
+  "phone_number": "2253271058",
+  "call_count": 253,
+  "call_charges": 45.72,
+  "call_duration": 488.5,
+  "customer": {
+    "voice_mail_plan": "no",
+    "number_vmail_messages": 0,
+    "churn": 0,
+    "account_age": 112,
+    "phone_number": "2253271058",
+    "state": "AB",
+    "international_plan": "no",
+    "customer_service_calls": 0
+  }
+}
+```
 
 ### Using New Platform config in a new plugin
 
