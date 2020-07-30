@@ -150,7 +150,7 @@ Now that the transform is created, we can start it and see its progress on the T
 <img src="./screens/tranform.png" align="middle">
 
 
-Once tranfor executed  you should have data that looks like this :
+Once tranform executed you should have data that looks like this :
 
 In the customers churn_transform_index :
 
@@ -172,3 +172,314 @@ In the customers churn_transform_index :
   }
 }
 ```
+
+We have built sums of call charges, number of calls, and call durations. These features paired with our customer metadata should be enough to build a churn prediction model.
+
+We have a total of nine features in our feature set, three of which are categorical features. Additionally, we have the field `customer.churn`. This represents historical data of customers that have churned in the past. It will be the label our supervised learning utilizes to build our predictive model.
+
+<img src="./screens/features_set1.png" align="middle">
+<p>
+<img src="./screens/features_set2.png" align="middle">
+
+
+# Building the model
+
+Once we have our feature set, we can start building our supervised model. We will predict churn based on our customer calling data. 
+
+Note: An index pattern referencing the newly pivoted data is required. The pattern I chose was `churn_transform_index`.
+
+Navigate to the Data Frame Analytics tab in the Machine Learning app in Kibana.
+
+To create the job let’s first:
+
+- Select the `classification` job type for predicting the two classes of `churn`
+- The dependent variable is `customer.churn` as that is what we are trying to predict
+
+
+<img src="./screens/ml_step1.png" align="middle">
+
+- We should exclude fields we know don’t add information. In this case, `customer.phone_number` and `phone_number` are unique per entry and don’t contain useful information.
+
+<img src="./screens/ml_step2.png" align="middle">
+
+- It's fine to keep the default training percent of 80
+- Click on continue
+- Keep the model memory limit as it is. This allows the job executor to execute on a node that can support at least this amount of memory.
+
+
+<img src="./screens/ml_step3.png" align="middle">
+
+- Keep all other parameters to default and click on continue
+- Give the job a unique ID
+- Add a nice description
+- Defines the name of the field in which to store the results of the analysis. Defaults to ml.
+- Specify where our predictions will be written
+- Click on continue, then create
+
+<img src="./screens/ml_step4.png" align="middle">
+
+- Wait for the job to finish
+
+<img src="./screens/ml_step5.png" align="middle">
+
+- Make sure the index `customer_churn_model` where the model will be stored has been created
+
+<img src="./screens/ml_step6.png" align="middle">
+
+Once analytics job executed you should have data that looks like this :
+
+In the customers `customer_churn_model` :
+
+```json
+{
+  "call_count": 394,
+  "ml__id_copy": "Mg-6H54tQSW52RwzsWW1wI0AAAAAAAAA",
+  "phone_number": "2253709563",
+  "call_charges": 69.33000000000007,
+  "call_duration": 653.6000000000007,
+  "customer": {
+    "voice_mail_plan": "yes",
+    "number_vmail_messages": 26,
+    "churn": 0,
+    "account_age": 32,
+    "phone_number": "2253709563",
+    "state": "AB",
+    "international_plan": "no",
+    "customer_service_calls": 1
+  },
+  "ml_results": {
+    "customer.churn_prediction": 0,
+    "top_classes": [
+      {
+        "class_probability": 0.9555746006568655,
+        "class_score": 0.07567234887325856,
+        "class_name": 0
+      },
+      {
+        "class_probability": 0.04442539934313445,
+        "class_score": 0.04442539934313445,
+        "class_name": 1
+      }
+    ],
+    "prediction_score": 0.07567234887325856,
+    "prediction_probability": 0.9555746006568655,
+    "feature_importance": [
+      {
+        "feature_name": "customer.international_plan",
+        "importance": -0.23469168614313005
+      },
+      {
+        "feature_name": "customer.voice_mail_plan",
+        "importance": -0.21462005585238877
+      }
+    ],
+    "is_training": true
+  }
+}
+```
+
+This analytics job will determine the following:
+
+- The best encodings for each feature
+- Which features give the best information or which should be ignored
+- The optimal hyperparameters with which to build the best model
+
+Once it has finished running, we can see the model error rates given its testing and training data.
+
+<img src="./screens/ml_step7.png" align="middle">
+
+Pretty good accuracy ! If you are following along, your numbers might differ slightly. When the model is trained, it uses a random subset of the data.
+
+<img src="./screens/ml_step8.png" align="middle">
+
+We now have a model that we can use in an ingest pipeline.
+
+# Using the model
+
+Since we know which data frame analytics job created this model, we can see its ID and various settings with this API call:
+
+```json
+GET _ml/inference/customer_churn*?human=true
+
+```
+
+The result should looks like this, with the model id to be used later `customer_churn-1596114719951`
+
+```json
+{
+  "count" : 1,
+  "trained_model_configs" : [
+    {
+      "model_id" : "customer_churn-1596114719951",
+      "created_by" : "_xpack",
+      "version" : "8.0.0",
+      "create_time_string" : "2020-07-30T13:11:59.951Z",
+      "create_time" : 1596114719951,
+      "estimated_heap_memory_usage" : "46.4kb",
+      "estimated_heap_memory_usage_bytes" : 47544,
+      "estimated_operations" : 142,
+      "license_level" : "platinum",
+      "description" : "ML job to predict if customer will churn or not",
+      "tags" : [
+        "customer_churn"
+      ],
+      "metadata" : {
+        "analytics_config" : {
+          "max_num_threads" : 1,
+          "model_memory_limit" : "23mb",
+          "create_time" : 1596114678853,
+          "allow_lazy_start" : false,
+          "description" : "ML job to predict if customer will churn or not",
+          "analyzed_fields" : {
+            "excludes" : [ ],
+            "includes" : [
+              "call_charges",
+              "call_count",
+              "call_duration",
+              "customer.account_age",
+              "customer.churn",
+              "customer.customer_service_calls",
+              "customer.international_plan",
+              "customer.number_vmail_messages",
+              "customer.state",
+              "customer.voice_mail_plan"
+            ]
+          },
+          "id" : "customer_churn",
+          "source" : {
+            "query" : {
+              "match_all" : { }
+            },
+            "index" : [
+              "churn_transform_index"
+            ]
+          },
+          "dest" : {
+            "index" : "customer_churn_model",
+            "results_field" : "ml_results"
+          },
+          "analysis" : {
+            "classification" : {
+              "randomize_seed" : 4593507844979913957,
+              "dependent_variable" : "customer.churn",
+              "num_top_classes" : 2,
+              "training_percent" : 80.0,
+              "class_assignment_objective" : "maximize_minimum_recall",
+              "num_top_feature_importance_values" : 2,
+              "prediction_field_name" : "customer.churn_prediction"
+            }
+          },
+          "version" : "8.0.0"
+        }
+      },
+      "input" : {
+        "field_names" : [
+          "call_charges",
+          "call_count",
+          "call_duration",
+          "customer.account_age",
+          "customer.customer_service_calls",
+          "customer.international_plan",
+          "customer.number_vmail_messages",
+          "customer.state",
+          "customer.voice_mail_plan"
+        ]
+      },
+      "inference_config" : {
+        "classification" : {
+          "num_top_classes" : 2,
+          "top_classes_results_field" : "top_classes",
+          "results_field" : "customer.churn_prediction",
+          "num_top_feature_importance_values" : 2,
+          "prediction_field_type" : "number"
+        }
+      }
+    }
+  ]
+}
+```
+
+With the model ID in hand we can now make predictions. We built the original feature set through transforms. We will do the same for all data that we send through the inference processor. 
+
+````json
+# Enrichment + prediction pipeline
+# NOTE: model_id will be different for your data
+PUT _ingest/pipeline/customer_churn_enrich_and_predict
+{
+  "description": "enriches the data with the customer info if known and makes a churn prediction",
+  "processors": [
+    {
+      "enrich": {
+        "policy_name": "customer_metadata",
+        "field": "phone_number",
+        "target_field": "customer",
+        "max_matches": 1,
+        "tag": "customer_data_enrichment"
+      }
+    },
+    {
+      "inference": {
+        "model_id": "customer_churn-1596114719951",
+        "inference_config": {
+          "classification": {}
+        },
+        "field_map": {},
+        "tag": "chrun_prediction"
+      }
+    }
+  ]
+}
+````
+Time to put it all in a continuous transform.
+
+````json
+
+PUT _transform/continuous-customer-churn-prediction
+{
+  "sync": {
+    "time": {
+      "field": "@timestamp",
+      "delay": "10m"
+    }
+  },
+  "source": {
+    "index": [
+      "calls"
+    ]
+  },
+  "dest": {
+    "index": "churn_predictions",
+    "pipeline": "customer_churn_enrich_and_predict"
+  },
+  "pivot": {
+    "group_by": {
+      "phone_number": {
+        "terms": {
+          "field": "phone_number"
+        }
+      }
+    },
+    "aggregations": {
+      "call_charges": {
+        "sum": {
+          "field": "call_charges"
+        }
+      },
+      "call_duration": {
+        "sum": {
+          "field": "call_duration"
+        }
+      },
+      "call_count": {
+        "value_count": {
+          "field": "dialled_number"
+        }
+      }
+    }
+  }
+}
+````
+
+As the transform sees new data, it creates our feature set and infers against the model. The prediction along with the enriched data is indexed into churn_predictions. This all occurs continuously. As new customer call data comes in, the transform updates our churn predictions. The predictions are data in an index. This means we can operationalize via alerting, build visualizations with Lens, or build a custom dashboard. 
+
+<img src="./screens/continuous_tranform.png" align="middle">

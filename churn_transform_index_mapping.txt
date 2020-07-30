@@ -8,9 +8,6 @@ PUT churn_transform_index
     "properties": {
       "customer": {
         "properties": {
-          "@timestamp": {
-            "type": "date"
-          },
           "account_age": {
             "type": "integer"
           },
