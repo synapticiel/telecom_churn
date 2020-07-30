@@ -1,0 +1,29 @@
+PUT calls
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": {
+        "type": "date"
+      },
+      "call_charges": {
+        "type": "double"
+      },
+      "call_duration": {
+        "type": "double"
+      },
+      "phone_number": {
+        "type": "keyword"
+      },
+      "record_id": {
+        "type": "keyword"
+      },
+      "dialled_number": {
+        "type": "keyword"
+      }
+    }
+  }
+}
